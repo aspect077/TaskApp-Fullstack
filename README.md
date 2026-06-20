@@ -2,7 +2,7 @@
 
 A full-stack task management web app with JWT authentication, real-time updates via WebSockets, and a clean responsive UI — built entirely with vanilla HTML/CSS/JS on the frontend and Node.js/Express on the backend.
 
-🔗 **Live Demo:** _add your Railway URL here_
+🔗 **Live Demo:** https://taskapp-fullstack-production.up.railway.app/
 📁 **Repo:** https://github.com/aspect077/TaskApp-Fullstack
 
 ---
