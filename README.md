@@ -32,6 +32,41 @@ A full-stack task management web app with JWT authentication, real-time updates 
 
 ---
 
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────┐         HTTP (REST)        ┌──────────────────┐
+│                  │ ───────────────────────────▶│                  │
+│   Frontend       │                              │   Express API    │
+│  (public/*)      │ ◀───────────────────────────│  (server/*)      │
+│                  │         JSON responses       │                  │
+└────────┬─────────┘                              └─────────┬────────┘
+         │                                                   │
+         │           WebSocket (live updates)                │
+         └──────────────────────────────────────────────────▶│
+                                                               │
+                                                     ┌─────────▼────────┐
+                                                     │  SQLite Database │
+                                                     │  (taskapp.db)    │
+                                                     └───────────────────┘
+```
+
+**Request flow:**
+1. The browser loads `public/index.html`, `style.css`, and `app.js` — served as static files by Express (`express.static`)
+2. Login/signup calls hit `/api/auth/*`, which issues a **JWT** on success
+3. Every subsequent request (tasks) attaches that JWT in the `Authorization` header
+4. `requireAuth` middleware verifies the token and attaches `req.userId` before any task route runs
+5. Task routes read/write to **SQLite**, scoped to `req.userId`
+6. After any task mutation (create/update/delete), the server calls `broadcastToUser()`, which pushes a message over **WebSocket** to every other open tab/device logged into that same account
+7. The frontend's WebSocket listener (`connectWS()` in `app.js`) receives that message and updates the UI live, without a page refresh
+
+**Why this design:**
+- **Stateless auth (JWT)** — no server-side session store needed; scales easily, and the same token works across REST calls and the WebSocket handshake
+- **Single HTTP server for both REST + WebSocket** — `http.createServer(app)` is shared by Express and the `ws` WebSocket server, so both run on the same port with no extra infrastructure
+- **SQLite via `node:sqlite`** — zero native build dependencies (avoids the `better-sqlite3` Windows compilation issue), good enough for a single-instance app like this
+
+---
+
 ## 📂 Project Structure
 
 ```
@@ -139,8 +174,56 @@ This means multiple open tabs/devices for the same account stay in sync without 
 
 ---
 
+## 🩹 Common Issues
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `MODULE_NOT_FOUND` when running `node server/index.js` | Running the command from inside `server/` instead of the project root | `cd` back to the project root first, then run `node server/index.js` |
+| `Cannot find module 'node:sqlite'` | Node version too old | Upgrade to **Node v22.5+** — this module is built-in but not present in older versions |
+| Files appear empty (0 bytes) after creating them manually | Some Windows text editors save incorrectly when pasting large code blocks | Recreate the file and paste again, or use a code editor like VS Code instead of Notepad |
+| WebSocket `connect-src` / Content Security Policy error in console | Testing the WebSocket from a blank browser tab (`about:blank`) — Chrome blocks this by default | Test from `http://localhost:3000` directly instead of a blank tab, or use Firefox |
+| `Failed to fetch` on signup/login | Backend server isn't running, or was closed accidentally | Restart it: `node server/index.js`, then refresh the page |
+| Signup fails with "Name, email, and password are all required" | Frontend form is missing the `name` field, or `app.js` isn't sending it | Make sure both `index.html` (signup form) and `app.js` (`handleSignup()`) include the `name` field |
+| PowerShell command fails with a parse error | Two commands pasted on the same line, e.g. `$token = $login.token Invoke-RestMethod...` | Run each PowerShell command on its own line, one at a time |
+| Deleting/recreating the project folder wipes all users & tasks | `taskapp.db` lives inside the project folder and isn't tracked by git (it's in `.gitignore`) | This is expected — re-run signup after a fresh clone/extract |
+
+---
+
+## 🧪 Testing
+
+Manual end-to-end test checklist used during development:
+
+1. **Auth**
+   - [ ] Sign up with a new email — should redirect into the app and show the task dashboard
+   - [ ] Log out, then log back in with the same credentials — should succeed
+   - [ ] Try logging in with a wrong password — should show an error, not crash
+
+2. **Task CRUD**
+   - [ ] Create a task with a title, description, priority, and due date
+   - [ ] Edit that task and change its status
+   - [ ] Mark a task as done by clicking the checkbox
+   - [ ] Delete a task — should disappear immediately
+
+3. **Filters**
+   - [ ] Switch between All / To Do / In Progress / Done — list should update correctly
+
+4. **Real-time sync (WebSocket)**
+   - [ ] Open the app in two browser tabs, logged into the same account
+   - [ ] Create/edit/delete a task in one tab
+   - [ ] Confirm it appears/updates/disappears in the other tab **without refreshing**
+   - [ ] Look for the **⚡ Live updates active** banner — confirms the WebSocket connection is open
+
+5. **Data isolation**
+   - [ ] Sign up a second account
+   - [ ] Confirm it sees an empty task list, not the first account's tasks
+
+> No automated test suite is included yet — see Roadmap below.
+
+---
+
 ## 📌 Roadmap / Possible Improvements
 
+- [ ] Automated test suite (unit + integration tests)
 - [ ] Admin dashboard to view registered users
 - [ ] Task search and sorting
 - [ ] Email verification on signup
